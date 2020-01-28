@@ -1,18 +1,19 @@
-FROM ubuntu:16.04
+FROM ubuntu:16.04 as ubu
 
 ## Env
-ARG DAQ_VER=daq-2.0.6
+ARG DAQ_VER=2.0.6
 
 ## PulledPork Env
 ARG PPORK_VERSION=0.7.3
 
 ## Snort Env
-ARG SNORT_VER=2.9.11.1
+ARG SNORT_VER=2.9.15.1
 
 
 ## Install Dependencies
 RUN apt-get update && apt-get -y install \
     wget \
+    libhwloc-dev \
     build-essential \
     libtool \
     automake \
@@ -21,6 +22,7 @@ RUN apt-get update && apt-get -y install \
     bison \
     libnet1 \
     libnet1-dev \
+    pkg-config \
     libpcre3 \
     libpcre3-dev \
     autoconf \
@@ -37,6 +39,8 @@ RUN apt-get update && apt-get -y install \
     libxml2-dev \
     libxslt1-dev \
     openssl \
+    libsslcommon2-dev \
+    libssl-dev \
     libreadline6-dev \
     unzip \
     libcurl4-openssl-dev \
@@ -47,17 +51,41 @@ RUN apt-get update && apt-get -y install \
     gettext-base \
     libdumbnet-dev \
     libpcap-dev \
-    python-pip \
-    && apt-get clean && rm -rf /var/cache/apt/*
+    luajit \
+    libluajit-5.1-2 \
+    libluajit-5.1-dev \
+    libluajit-5.1-common \
+    python3-pip \
+    python-pip
 
-
+FROM ubu as ubu1
 ## Install DAQ
+## Env
+ARG DAQ_VER=2.0.6
+
+## PulledPork Env
+ARG PPORK_VERSION=0.7.3
+
+## Snort Env
+ARG SNORT_VER=2.9.15.1
+
+ARG PERL_MM_USE_DEFAULT=1
+
 RUN cd /tmp \
-    && wget https://snort.org/downloads/snort/$DAQ_VER.tar.gz \
-    && tar zxf $DAQ_VER.tar.gz \
-    && cd $DAQ_VER \
+    && wget http://luajit.org/download/LuaJIT-2.0.5.tar.gz \
+    && tar zxf LuaJIT-2.0.5.tar.gz \
+    && cd LuaJIT-2.0.5 \
+    && make -j3 && make install \
+    && ldconfig
+#  && ln -s /usr/local/include/luajit-2.0/* /usr/local/include/
+
+
+RUN cd /tmp \
+    && wget https://snort.org/downloads/snort/daq-$DAQ_VER.tar.gz \
+    && tar zxf daq-$DAQ_VER.tar.gz \
+    && cd daq-$DAQ_VER \
     && ./configure \
-    && make && make install \
+    && make -j3 && make install \
     && ldconfig
 
 ## Install SNORT
@@ -66,7 +94,7 @@ RUN cd /tmp \
     && tar zxf snort-$SNORT_VER.tar.gz \
     && cd snort-$SNORT_VER \
     && ./configure --enable-sourcefire \
-    && make && make install
+    && make -j3 && make install
 
 ## User/group/dir for Snort
 RUN groupadd snort \
@@ -89,7 +117,7 @@ RUN cd /tmp \
     && cpan install Crypt::SSLeay  \
     && cpan Mozilla::CA IO::Socket::SSL
 
-RUN rm -rf /tmp/*
+RUN rm -rf /tmp/* && mkdir -p /etc/snort
 
 ## Snort
 RUN cd /etc/snort \
@@ -112,8 +140,9 @@ RUN cd /etc/snort \
       /etc/snort/snort.conf
 
 ## Install websnort
-RUN pip install websnort
+RUN pip3 install --upgrade pip && pip3 install websnort
 
+from ubu1 as ubu2
 # Need to generate these for the first run of PulledPork
 RUN touch /etc/snort/rules/local.rules
 RUN mkdir -p /etc/snort/rules/iplists/
@@ -161,6 +190,6 @@ COPY disablesid.conf /etc/snort/disablesid.conf
 COPY *.sh ./
 ARG PPORK_OINKCODE
 RUN if [ ! -z $PPORK_OINKCODE ]; then  bash update-rules.sh "$PPORK_OINKCODE"; fi
-
+# RUN apt-get clean && rm -rf /var/cache/apt/*
 EXPOSE 8080
 CMD ["websnort"]
